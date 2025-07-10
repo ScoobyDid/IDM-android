@@ -42,6 +42,41 @@
             android:name="android.support.FILE_PROVIDER_PATHS"
             android:resource="@xml/file_paths" />
         </provider>
+
+
+<!--    SENTRY config     -->
+        <meta-data
+            android:name="io.sentry.dsn"
+            android:value="https://1b00b97175ba997f40da94ad5ce21321@o4507925157380096.ingest.de.sentry.io/4507925167079504"
+            />
+        <meta-data
+            android:name="io.sentry.send-default-pii"
+            android:value="true"
+            />
+        <meta-data
+            android:name="io.sentry.traces.user-interaction.enable"
+            android:value="true"
+            />
+        <meta-data
+            android:name="io.sentry.attach-screenshot"
+            android:value="true"
+            />
+        <meta-data
+            android:name="io.sentry.attach-view-hierarchy"
+            android:value="true"
+            />
+        <meta-data
+            android:name="io.sentry.traces.sample-rate"
+            android:value="1.0"
+            />
+        <meta-data
+            android:name="io.sentry.session-replay.on-error-sample-rate"
+            android:value="1.0"
+            />
+        <meta-data
+            android:name="io.sentry.session-replay.session-sample-rate"
+            android:value="0.1"
+            />
     </application>
 
 </manifest>

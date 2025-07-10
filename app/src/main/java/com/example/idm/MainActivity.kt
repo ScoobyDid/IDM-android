@@ -1,82 +1,51 @@
 package com.example.idm
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.DownloadManager
-import android.content.ContentValues
-import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.MediaStore
-import android.util.Log
 import android.view.View
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
-import android.webkit.URLUtil
 import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.LinearLayout
-import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.core.view.WindowCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import java.io.File
-import java.io.FileOutputStream
-import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.concurrent.write
-import android.util.Base64 as AndroidBase64
-import kotlin.io.path.exists
-import android.webkit.MimeTypeMap
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.graphics.Bitmap
-import android.graphics.drawable.BitmapDrawable
-import android.view.MenuItem
-import android.widget.PopupMenu
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.media.MediaScannerConnection
-import android.util.Base64
-import androidx.core.app.NotificationCompat
-import androidx.core.content.FileProvider
-import java.io.IOException
-
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.idm.webAppInterface.WebAppInterface
+import com.example.idm.webChromeClient.MyWebChromeClient
 
 class MainActivity : AppCompatActivity() {
-    private val REQUEST_CAMERA = 1
-    private val LOCATION_PERMISSION_REQUEST_CODE = 1001
-    private val CAMERA_PERMISSION_REQUEST_CODE = 1002
-    private val WEBVIEW_URL = "http://192.168.17.249:8080"
+    private val WEBVIEW_URL = "https://jti.idatamanage.com"
     private val ORIGIN = "idm.llc"
     private val ORIGIN_ALT = "idatamanage.com"
 
     public lateinit var webView: WebView
+    private lateinit var webAppInterface: WebAppInterface
     private lateinit var webViewBackPressedCallback: OnBackPressedCallback
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
+    private lateinit var myWebChromeClient: MyWebChromeClient
+    private lateinit var requestPermissionLauncher: ActivityResultLauncher<Array<String>>
 
-    private var keepSplashOnScreen = AtomicBoolean(true)
+    private var currentFilePathCallback: ValueCallback<Array<Uri>>? = null
+    private var currentCameraPhotoUri: Uri? = null
+    public var keepSplashOnScreen = AtomicBoolean(true)
     public val forceRefreshBarCanAppear = AtomicBoolean(false)
     public val refreshBarCanAppear = AtomicBoolean(true)
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -115,12 +84,39 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(WEBVIEW_URL)
         webView.settings.javaScriptEnabled = true
 
-        webView.addJavascriptInterface(WebAppInterface(this, webView, this), "AndroidInterface")
+        webAppInterface = WebAppInterface(this, webView, this)
+        webView.addJavascriptInterface(webAppInterface, "AndroidInterface")
 
 
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
+
+        requestPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+            val granted = permissions.all { it.value } // check if all requested permissions are granted
+            myWebChromeClient.onLocationPermissionsResult(granted)
+        }
+
+        myWebChromeClient = MyWebChromeClient(
+            activityContext = this,
+            activity = this,
+            permissionLauncher = requestPermissionLauncher,
+            fileChooserLauncher = fileChooserLauncher,
+            onCameraPhotoUriGenerated = { uri -> currentCameraPhotoUri = uri },
+            onFilePathCallbackAssigned = { callback ->
+                // if a previous callback exists and a new one is being started,
+                // notify the old one with null (user didn't choose anything for it).
+                if (currentFilePathCallback != null && callback != null) {
+                    currentFilePathCallback?.onReceiveValue(null)
+                }
+                currentFilePathCallback = callback
+            }
+        )
+
+
+//        myWebChromeClient = MyWebChromeClient(this,  requestPermissionLauncher, fileChooserLauncher)
 
         webView.settings.apply {
             domStorageEnabled = true
@@ -132,12 +128,12 @@ class MainActivity : AppCompatActivity() {
             textZoom = 100
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            //            allowFileAccess = true
-            //            setGeolocationEnabled(true)
+            allowFileAccess = true
+            setGeolocationEnabled(true)
         }
 
         webView.apply {
-            webChromeClient = MyWebChromeClient()
+            webChromeClient = myWebChromeClient
             webViewClient = MyWebViewClient()
         }
 
@@ -168,7 +164,6 @@ class MainActivity : AppCompatActivity() {
                 if (child is WebView) {
                     val refreshBarCanAppear = refreshBarCanAppear.get()
                     val forceRefreshBarCanAppear = forceRefreshBarCanAppear.get()
-                    Log.d("forceRefreshBarCanAppear", "$forceRefreshBarCanAppear")
 
                     if (forceRefreshBarCanAppear) return false
 
@@ -183,8 +178,6 @@ class MainActivity : AppCompatActivity() {
         val progressViewEndOffset = (56 * density).toInt()
 
         swipeRefreshLayout.setProgressViewEndTarget(true, progressViewEndOffset)
-
-
     }
 
 
@@ -268,6 +261,22 @@ class MainActivity : AppCompatActivity() {
 
 
 
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (::webAppInterface.isInitialized) {
+            webAppInterface.handlePermissionsResult(requestCode, grantResults)
+        }
+    }
+
+
+
+
+
     inner class MyWebViewClient : WebViewClient() {
         override fun onPageFinished(view: WebView?, url: String?) {
             super.onPageFinished(view, url)
@@ -308,30 +317,29 @@ class MainActivity : AppCompatActivity() {
 
 
 
-    inner class MyWebChromeClient : WebChromeClient() {
-        private var mFilePathCallback: ValueCallback<Array<Uri>>? = null
 
-        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-            super.onProgressChanged(view, newProgress)
+    private val fileChooserLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (currentFilePathCallback == null) {
+                currentCameraPhotoUri = null
+                return@registerForActivityResult
+            }
 
-            if (newProgress >= 84) {
-                if (keepSplashOnScreen.get()) {
-                    keepSplashOnScreen.set(false)
+            var results: Array<Uri>? = null
+            if (result.resultCode == Activity.RESULT_OK) {
+                val dataString = result.data?.dataString
+                val clipData = result.data?.clipData
+
+                if (clipData != null) {
+                    results = Array(clipData.itemCount) { i -> clipData.getItemAt(i).uri }
+                } else if (dataString != null) {
+                    results = arrayOf(dataString.toUri())
+                } else if (currentCameraPhotoUri != null) {
+                    results = arrayOf(currentCameraPhotoUri!!)
                 }
             }
+            currentFilePathCallback?.onReceiveValue(results)
+            currentFilePathCallback = null
+            currentCameraPhotoUri = null // reset after use
         }
-
-        override fun onShowFileChooser(
-            webView: WebView?,
-            filePathCallback: ValueCallback<Array<Uri>>?,
-            fileChooserParams: FileChooserParams?
-        ): Boolean {
-            mFilePathCallback = filePathCallback
-            val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-            startActivityForResult(takePictureIntent, REQUEST_CAMERA)
-
-            return true
-        }
-
-    }
 }

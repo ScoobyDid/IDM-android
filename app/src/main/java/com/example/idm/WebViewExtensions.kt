@@ -2,6 +2,8 @@ package com.example.idm
 
 import android.webkit.WebView
 
+
+
 fun WebView.showJsToast(
     text: String,
     cssClasses: List<String>? = null,
@@ -26,3 +28,25 @@ fun WebView.showJsToast(
         this.evaluateJavascript(script){}
     }
 }
+
+
+
+
+
+fun WebView.showJsError(
+    text: String,
+    reportError: Boolean? = true
+) {
+    val escapedText = text
+        .replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+
+    val script = "ErrorHandler.feedback(_lang('$escapedText'), $reportError);"
+
+    this.post {
+        this.evaluateJavascript(script){}
+    }
+}
+
